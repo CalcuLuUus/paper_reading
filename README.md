@@ -1,0 +1,116 @@
+# 飞书多维表格论文分析器 v1
+
+这是一个面向飞书多维表格的单租户论文分析服务：
+
+- 飞书多维表格负责触发和展示。
+- `FastAPI` 服务负责接收 webhook、入队任务。
+- 独立 worker 负责抓取 arXiv/PDF、调用 OpenAI 兼容模型、回写 8 列分析结果。
+
+## 功能范围
+
+- 输入支持：
+  - `arXiv链接`
+  - 文本型 `PDF附件`
+- 输出为 8 列中文 Markdown：
+  - `0_摘要翻译`
+  - `1_方法动机`
+  - `2_方法设计`
+  - `3_与其他方法对比`
+  - `4_实验表现与优势`
+  - `5_学习与应用`
+  - `6_总结`
+  - `7_关键词领域`
+- 系统列：
+  - `分析状态`
+  - `错误信息`
+  - `来源类型`
+  - `来源哈希`
+  - `论文ID`
+  - `最后分析时间`
+
+v1 不支持 OCR，不抓 DOI/出版社网页，只覆盖 arXiv 和可提取文本的 PDF。
+
+## 安装
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
+cp .env.example .env
+```
+
+## 启动
+
+API：
+
+```bash
+uvicorn paper_analyzer.main:app --host 0.0.0.0 --port 8000
+```
+
+Worker：
+
+```bash
+python -m paper_analyzer.services.worker
+```
+
+## 飞书表结构
+
+建议字段如下：
+
+- 主字段：`论文标题/备注`
+- 输入：`PDF附件`、`arXiv链接`
+- 输出：`0_摘要翻译` 到 `7_关键词领域`
+- 系统：`分析状态`、`错误信息`、`来源类型`、`来源哈希`、`论文ID`、`最后分析时间`
+
+## 飞书自动化配置
+
+在多维表格里配置一条自动化：
+
+1. 触发条件：记录新增或修改。
+2. 限定监控字段：`PDF附件`、`arXiv链接`。
+3. 动作：发送 HTTP 请求到：
+
+```text
+POST https://your-domain/webhooks/feishu/bitable-record
+```
+
+请求体示例：
+
+```json
+{
+  "base_token": "bascnxxx",
+  "table_id": "tblxxx",
+  "record_id": "{{record_id}}",
+  "changed_fields": ["arXiv链接"],
+  "secret": "change-me"
+}
+```
+
+如果你希望让 `changed_fields` 更精确，可以在自动化里针对不同字段配置不同请求体；如果做不到，也可以直接传固定值，服务端仍会以记录当前内容重新判定来源。
+
+## 运行方式
+
+- `POST /webhooks/feishu/bitable-record`
+  - 校验 `secret`
+  - 拉取记录
+  - 解析来源
+  - 入队并把 `分析状态` 更新为 `排队中`
+- worker
+  - 轮询 `analysis_jobs`
+  - 将记录标记为 `分析中`
+  - 优先抓取 arXiv HTML，失败后退回 arXiv PDF，再退回附件 PDF
+  - 调用 OpenAI 兼容 `chat/completions`
+  - 成功后一次性写回 8 列和系统列
+
+## 测试
+
+```bash
+pytest
+```
+
+## 说明
+
+- OpenAI 兼容层只依赖 `base_url + api_key + model`。
+- Feishu SDK 没有被强绑定，当前实现直接走 HTTP API。
+- 默认数据库是 SQLite，适合单实例部署。
+

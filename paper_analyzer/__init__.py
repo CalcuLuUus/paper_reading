@@ -1,0 +1,2 @@
+"""Feishu paper analyzer service."""
+
