@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, Integer, String, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -16,7 +16,6 @@ class AnalysisJob(Base):
     """Queued analysis task."""
 
     __tablename__ = "analysis_jobs"
-    __table_args__ = (UniqueConstraint("record_id", "source_hash", name="uq_record_source_hash"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     base_token: Mapped[str] = mapped_column(String(128), nullable=False)
@@ -27,9 +26,10 @@ class AnalysisJob(Base):
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     source_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    trigger_mode: Mapped[str] = mapped_column(String(32), nullable=False, default="webhook")
+    force_rerun: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     source_meta_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     result_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     requested_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), nullable=False)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=False), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=False), nullable=True)
-

@@ -95,6 +95,46 @@ class FeishuClient:
         )
         return payload["data"]["record"]
 
+    def list_records(
+        self,
+        base_token: str,
+        table_id: str,
+        *,
+        page_size: int = 100,
+        page_token: str | None = None,
+    ) -> tuple[list[dict[str, Any]], str | None, bool]:
+        params: dict[str, Any] = {"page_size": page_size}
+        if page_token:
+            params["page_token"] = page_token
+        payload = self._request(
+            "GET",
+            f"/bitable/v1/apps/{base_token}/tables/{table_id}/records",
+            params=params,
+        )
+        data = payload["data"]
+        return data.get("items", []), data.get("page_token"), bool(data.get("has_more"))
+
+    def iter_records(
+        self,
+        base_token: str,
+        table_id: str,
+        *,
+        page_size: int = 100,
+    ) -> list[dict[str, Any]]:
+        records: list[dict[str, Any]] = []
+        page_token: str | None = None
+        while True:
+            items, page_token, has_more = self.list_records(
+                base_token,
+                table_id,
+                page_size=page_size,
+                page_token=page_token,
+            )
+            records.extend(items)
+            if not has_more:
+                break
+        return records
+
     def update_record(
         self,
         base_token: str,
@@ -118,4 +158,3 @@ class FeishuClient:
             )
             response.raise_for_status()
             return response.content
-

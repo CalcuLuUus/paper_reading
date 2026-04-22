@@ -12,6 +12,7 @@ from paper_analyzer.database import get_engine, get_session_factory
 def test_env(monkeypatch, tmp_path: Path):
     db_path = tmp_path / "test.db"
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{db_path}")
+    monkeypatch.setenv("RUN_MODE", "hybrid")
     monkeypatch.setenv("FEISHU_APP_ID", "cli_test")
     monkeypatch.setenv("FEISHU_APP_SECRET", "secret")
     monkeypatch.setenv("FEISHU_BASE_TOKEN", "base_test")
@@ -20,6 +21,7 @@ def test_env(monkeypatch, tmp_path: Path):
     monkeypatch.setenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
     monkeypatch.setenv("OPENAI_MODEL", "gpt-4.1-mini")
+    monkeypatch.setenv("LOCAL_POLL_INTERVAL_SEC", "30")
 
     get_settings.cache_clear()
     get_engine.cache_clear()
@@ -30,4 +32,3 @@ def test_env(monkeypatch, tmp_path: Path):
     get_settings.cache_clear()
     get_engine.cache_clear()
     get_session_factory.cache_clear()
-

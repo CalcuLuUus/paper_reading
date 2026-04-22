@@ -23,6 +23,7 @@ PAPER_ID_FIELD = "论文ID"
 LAST_ANALYZED_AT_FIELD = "最后分析时间"
 
 STATUS_QUEUED = "排队中"
+STATUS_PENDING = "待分析"
 STATUS_RUNNING = "分析中"
 STATUS_COMPLETED = "已完成"
 STATUS_FAILED = "失败"
@@ -31,6 +32,13 @@ JOB_STATUS_QUEUED = "queued"
 JOB_STATUS_RUNNING = "running"
 JOB_STATUS_COMPLETED = "completed"
 JOB_STATUS_FAILED = "failed"
+
+TRIGGER_MODE_WEBHOOK = "webhook"
+TRIGGER_MODE_LOCAL_POLLING = "local_polling"
+
+RUN_MODE_WEBHOOK = "webhook"
+RUN_MODE_LOCAL_POLLING = "local_polling"
+RUN_MODE_HYBRID = "hybrid"
 
 TRIGGER_FIELDS = {PDF_FIELD, ARXIV_FIELD}
 
@@ -44,4 +52,3 @@ OUTPUT_FIELD_MAP = {
     OUTPUT_SUMMARY: "summary",
     OUTPUT_KEYWORDS: "keywords_domain",
 }
-

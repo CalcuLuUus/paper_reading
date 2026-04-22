@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from typing import Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -21,6 +22,7 @@ class Settings(BaseSettings):
     app_name: str = "feishu-paper-analyzer"
     app_env: str = "development"
     database_url: str = "sqlite:///./paper_analyzer.db"
+    run_mode: Literal["webhook", "local_polling", "hybrid"] = "hybrid"
 
     feishu_app_id: str = ""
     feishu_app_secret: str = ""
@@ -35,10 +37,19 @@ class Settings(BaseSettings):
     job_timeout_sec: int = 900
     max_pdf_mb: int = 30
     worker_poll_interval_sec: float = 2.0
+    local_poll_interval_sec: float = 30.0
     llm_request_timeout_sec: int = 120
     llm_max_chunk_chars: int = 12000
     llm_max_evidence_chars: int = 30000
     pdf_text_threshold: int = 1200
+
+    @property
+    def webhook_enabled(self) -> bool:
+        return self.run_mode in {"webhook", "hybrid"}
+
+    @property
+    def local_polling_enabled(self) -> bool:
+        return self.run_mode in {"local_polling", "hybrid"}
 
 
 @lru_cache(maxsize=1)
@@ -46,4 +57,3 @@ def get_settings() -> Settings:
     """Return the cached settings instance."""
 
     return Settings()
-

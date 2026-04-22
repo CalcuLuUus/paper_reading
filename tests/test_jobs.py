@@ -1,19 +1,20 @@
-from paper_analyzer.clients.feishu import FeishuClient
-from paper_analyzer.clients.llm import OpenAICompatibleClient
 from paper_analyzer.config import get_settings
 from paper_analyzer.constants import (
     ARXIV_FIELD,
-    ERROR_FIELD,
     OUTPUT_ABSTRACT_TRANSLATION,
     STATUS_COMPLETED,
     STATUS_FIELD,
+    STATUS_PENDING,
+    TRIGGER_MODE_LOCAL_POLLING,
+    TRIGGER_MODE_WEBHOOK,
 )
 from paper_analyzer.database import get_session_factory, init_database
 from paper_analyzer.models import AnalysisJob
 from paper_analyzer.schemas import PaperAnalysisOutput, PaperDocument, WebhookPayload
 from paper_analyzer.services.analysis import PaperAnalyzer
-from paper_analyzer.services.jobs import JobProcessor, JobService
+from paper_analyzer.services.jobs import JobProcessor, JobService, LocalPollingScanner
 from paper_analyzer.utils import utcnow
+from paper_analyzer.clients.feishu import FeishuClient
 
 
 class FakeFeishuClient(FeishuClient):
@@ -24,6 +25,7 @@ class FakeFeishuClient(FeishuClient):
             "论文标题/备注": "Test Paper",
             ARXIV_FIELD: "https://arxiv.org/abs/2401.01234",
         }
+        self.records = [{"record_id": "rec1", "fields": self.record_fields}]
 
     def get_tenant_access_token(self):
         return "token"
@@ -35,6 +37,9 @@ class FakeFeishuClient(FeishuClient):
         self.updates.append(fields)
         self.record_fields.update(fields)
         return {"record_id": record_id, "fields": self.record_fields}
+
+    def iter_records(self, base_token, table_id, page_size=100):
+        return self.records
 
 
 class FakeAnalyzer(PaperAnalyzer):
@@ -76,6 +81,8 @@ def test_job_service_enqueue_and_processor_success(test_env):
 
     job = service.claim_next_job()
     assert job is not None
+    assert job.trigger_mode == TRIGGER_MODE_WEBHOOK
+    assert job.force_rerun is False
 
     processor = JobProcessor(session, settings, feishu, FakeAnalyzer())
     processor.source_loader.load = lambda selection, title_hint=None: PaperDocument(
@@ -136,3 +143,113 @@ def test_job_service_ignores_duplicate_completed_job(test_env):
     assert result.status == "skipped"
     session.close()
 
+
+def test_local_polling_scanner_enqueues_pending_record_and_marks_force_rerun(test_env):
+    settings = get_settings()
+    settings.run_mode = "local_polling"
+    init_database()
+    session = get_session_factory()()
+    feishu = FakeFeishuClient(settings)
+    feishu.record_fields[STATUS_FIELD] = STATUS_PENDING
+    feishu.records = [{"record_id": "rec1", "fields": feishu.record_fields}]
+
+    scanner = LocalPollingScanner(session, settings, feishu)
+    results = scanner.scan()
+
+    assert len(results) == 1
+    assert results[0].status == "queued"
+    job = session.query(AnalysisJob).one()
+    assert job.trigger_mode == TRIGGER_MODE_LOCAL_POLLING
+    assert job.force_rerun is True
+    assert feishu.updates[-1][STATUS_FIELD] == "排队中"
+    session.close()
+
+
+def test_local_polling_scanner_skips_non_pending_records(test_env):
+    settings = get_settings()
+    settings.run_mode = "local_polling"
+    init_database()
+    session = get_session_factory()()
+    feishu = FakeFeishuClient(settings)
+    feishu.record_fields[STATUS_FIELD] = STATUS_COMPLETED
+    feishu.records = [{"record_id": "rec1", "fields": feishu.record_fields}]
+
+    scanner = LocalPollingScanner(session, settings, feishu)
+    results = scanner.scan()
+
+    assert results == []
+    assert session.query(AnalysisJob).count() == 0
+    session.close()
+
+
+def test_local_polling_force_rerun_allows_same_source_hash_after_completion(test_env):
+    settings = get_settings()
+    settings.run_mode = "local_polling"
+    init_database()
+    session = get_session_factory()()
+    feishu = FakeFeishuClient(settings)
+    feishu.record_fields[STATUS_FIELD] = STATUS_PENDING
+    feishu.record_fields["来源哈希"] = "arxiv:2401.01234"
+    session.add(
+        AnalysisJob(
+            base_token=settings.feishu_base_token,
+            table_id=settings.feishu_table_id,
+            record_id="rec1",
+            source_hash="arxiv:2401.01234",
+            status="completed",
+            attempts=1,
+            error=None,
+            source_type="arxiv",
+            trigger_mode=TRIGGER_MODE_WEBHOOK,
+            force_rerun=False,
+            source_meta_json='{"source_type":"arxiv","source_hash":"arxiv:2401.01234","paper_id":"2401.01234","arxiv_id":"2401.01234"}',
+            result_json="{}",
+            requested_at=utcnow(),
+            started_at=utcnow(),
+            finished_at=utcnow(),
+        )
+    )
+    session.commit()
+
+    scanner = LocalPollingScanner(session, settings, feishu)
+    results = scanner.scan()
+
+    assert results[0].status == "queued"
+    assert session.query(AnalysisJob).count() == 2
+    session.close()
+
+
+def test_local_polling_skips_when_same_source_is_already_pending(test_env):
+    settings = get_settings()
+    settings.run_mode = "local_polling"
+    init_database()
+    session = get_session_factory()()
+    feishu = FakeFeishuClient(settings)
+    feishu.record_fields[STATUS_FIELD] = STATUS_PENDING
+    session.add(
+        AnalysisJob(
+            base_token=settings.feishu_base_token,
+            table_id=settings.feishu_table_id,
+            record_id="rec1",
+            source_hash="arxiv:2401.01234",
+            status="queued",
+            attempts=0,
+            error=None,
+            source_type="arxiv",
+            trigger_mode=TRIGGER_MODE_LOCAL_POLLING,
+            force_rerun=True,
+            source_meta_json='{"source_type":"arxiv","source_hash":"arxiv:2401.01234","paper_id":"2401.01234","arxiv_id":"2401.01234"}',
+            result_json=None,
+            requested_at=utcnow(),
+            started_at=None,
+            finished_at=None,
+        )
+    )
+    session.commit()
+
+    scanner = LocalPollingScanner(session, settings, feishu)
+    results = scanner.scan()
+
+    assert results[0].status == "duplicate"
+    assert session.query(AnalysisJob).count() == 1
+    session.close()

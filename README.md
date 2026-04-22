@@ -9,6 +9,11 @@
 3. 调用 OpenAI 兼容模型
 4. 把 8 个中文分析模块回填到多维表格
 
+现在支持两种运行方式：
+
+- `Webhook 模式`：飞书自动化直接调用你的 HTTP 服务，适合云端部署或本地临时穿透。
+- `本地模式`：后端只跑在本机，不需要公网入口；本地扫描器每隔一段时间主动扫表，处理 `分析状态=待分析` 的记录。
+
 ## 先看哪里
 
 如果你是第一次接手这个项目，不要先看代码，先看这里：
@@ -61,6 +66,33 @@ pip install -e ".[dev]"
 cp .env.example .env
 ```
 
+常见运行模式：
+
+- 本地模式：
+
+```bash
+RUN_MODE=local_polling
+python -m paper_analyzer.services.local_runner
+python -m paper_analyzer.services.worker
+```
+
+- Webhook 模式：
+
+```bash
+RUN_MODE=webhook
+uvicorn paper_analyzer.main:app --host 0.0.0.0 --port 8000
+python -m paper_analyzer.services.worker
+```
+
+- 双模式：
+
+```bash
+RUN_MODE=hybrid
+uvicorn paper_analyzer.main:app --host 0.0.0.0 --port 8000
+python -m paper_analyzer.services.local_runner
+python -m paper_analyzer.services.worker
+```
+
 启动 API：
 
 ```bash
@@ -93,3 +125,4 @@ python3 -m pytest -p no:capture
 - 不抓 DOI/出版社网页
 - 只覆盖 arXiv 和可提取文本的 PDF
 - 默认数据库是 SQLite，适合单实例部署
+- 本地模式依赖轮询，不是实时事件推送

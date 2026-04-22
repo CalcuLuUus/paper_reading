@@ -44,6 +44,26 @@ def test_webhook_rejects_invalid_secret(test_env, monkeypatch):
     assert response.status_code == 401
 
 
+def test_webhook_rejected_when_run_mode_disables_it(test_env, monkeypatch):
+    monkeypatch.setenv("RUN_MODE", "local_polling")
+    importlib.reload(paper_analyzer.main)
+    client = TestClient(paper_analyzer.main.app)
+
+    response = client.post(
+        "/webhooks/feishu/bitable-record",
+        json={
+            "base_token": get_settings().feishu_base_token,
+            "table_id": get_settings().feishu_table_id,
+            "record_id": "rec1",
+            "changed_fields": [ARXIV_FIELD],
+            "secret": get_settings().webhook_shared_secret,
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "webhook mode disabled"
+
+
 def test_webhook_ignores_non_trigger_fields(test_env, monkeypatch):
     import paper_analyzer.api.routes as routes
 
@@ -91,4 +111,3 @@ def test_webhook_queues_job(test_env, monkeypatch):
     job = session.query(AnalysisJob).one()
     assert job.record_id == "rec1"
     session.close()
-
