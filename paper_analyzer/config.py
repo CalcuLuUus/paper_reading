@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     job_timeout_sec: int = 900
     max_pdf_mb: int = 30
     worker_poll_interval_sec: float = 2.0
+    worker_concurrency: int = 3
     local_poll_interval_sec: float = 10.0
     llm_request_timeout_sec: int = 120
     llm_max_chunk_chars: int = 12000

@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -165,19 +165,45 @@ class JobService:
         return EnqueueResult(status="queued", job_id=job.id, source_hash=source.source_hash)
 
     def claim_next_job(self) -> AnalysisJob | None:
-        job = self.session.scalar(
-            select(AnalysisJob)
-            .where(AnalysisJob.status == JOB_STATUS_QUEUED)
-            .order_by(AnalysisJob.requested_at.asc())
-            .limit(1)
-        )
-        if job is None:
-            return None
-        job.status = JOB_STATUS_RUNNING
-        job.started_at = utcnow()
-        job.attempts += 1
-        self.session.commit()
-        self.session.refresh(job)
+        now = utcnow()
+        with self.session.begin():
+            self.session.execute(text("BEGIN IMMEDIATE"))
+            row = self.session.execute(
+                text(
+                    """
+                    SELECT id
+                    FROM analysis_jobs
+                    WHERE status = :status
+                    ORDER BY requested_at ASC
+                    LIMIT 1
+                    """
+                ),
+                {"status": JOB_STATUS_QUEUED},
+            ).fetchone()
+            if row is None:
+                return None
+
+            job_id = int(row[0])
+            self.session.execute(
+                text(
+                    """
+                    UPDATE analysis_jobs
+                    SET status = :running_status,
+                        started_at = :started_at,
+                        attempts = attempts + 1
+                    WHERE id = :job_id
+                    """
+                ),
+                {
+                    "running_status": JOB_STATUS_RUNNING,
+                    "started_at": now,
+                    "job_id": job_id,
+                },
+            )
+
+        job = self.session.get(AnalysisJob, job_id)
+        if job is not None:
+            self.session.refresh(job)
         return job
 
     def _get_latest_job_by_source(self, record_id: str, source_hash: str) -> AnalysisJob | None:

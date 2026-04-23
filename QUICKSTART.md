@@ -182,13 +182,13 @@ OPENAI_MODEL=gpt-4.1-mini
 
 如果用本地模式，需要两个本地进程：
 
-- 本地扫描器：负责每隔 30 秒扫一次表
-- Worker：负责真正分析任务
+- 本地扫描器：负责每隔 10 秒扫一次表
+- Worker 进程池：默认自动拉起最多 3 个并发 worker
 
 如果用 webhook 模式，也需要两个进程：
 
 - API：接收飞书 webhook
-- Worker：负责真正分析任务
+- Worker 进程池：默认自动拉起最多 3 个并发 worker
 
 ### 本地模式启动
 
@@ -212,6 +212,14 @@ python -m paper_analyzer.services.local_runner
 python -m paper_analyzer.services.worker
 ```
 
+默认会自动拉起最多 `3` 个并发 worker。
+
+如果你只想先用单 worker 调试，可以改成：
+
+```bash
+python -m paper_analyzer.services.worker --workers 1
+```
+
 ### Webhook 模式启动
 
 先在 `.env` 里设置：
@@ -232,6 +240,14 @@ uvicorn paper_analyzer.main:app --host 0.0.0.0 --port 8000
 
 ```bash
 python -m paper_analyzer.services.worker
+```
+
+默认会自动拉起最多 `3` 个并发 worker。
+
+如果你只想先用单 worker 调试，可以改成：
+
+```bash
+python -m paper_analyzer.services.worker --workers 1
 ```
 
 ### Hybrid 模式启动
@@ -310,13 +326,13 @@ POST https://你的域名/webhooks/feishu/bitable-record
 
 ### 请求体
 
-把下面这个 JSON 作为模板：
+把下面这个 JSON 作为结构模板：
 
 ```json
 {
   "base_token": "你的_base_token",
   "table_id": "你的_table_id",
-  "record_id": "{{record_id}}",
+  "record_id": "<通过右侧+插入 记录ID 变量>",
   "changed_fields": ["arXiv链接"],
   "secret": "你在.env里设置的WEBHOOK_SHARED_SECRET"
 }
@@ -325,7 +341,10 @@ POST https://你的域名/webhooks/feishu/bitable-record
 注意：
 
 - `secret` 必须和 `.env` 里的 `WEBHOOK_SHARED_SECRET` 一致
-- `record_id` 要用飞书自动化变量
+- `record_id` 不能手写 `{{record_id}}`
+- 必须把光标放到 `record_id` 的值位置，然后点击请求体 JSON 输入框右侧的 `+`
+- 在变量列表里插入“记录 ID”变量，而不是复制粘贴字符串模板
+- 如果变量列表里根本没有“记录 ID”，说明当前自动化上下文不支持这条 webhook 方案，建议改用 `local_polling`
 - `changed_fields` 如果飞书不方便动态传，也可以先写固定值，服务端仍会重新读取整条记录
 
 ## 13. 本地模式：如何触发分析

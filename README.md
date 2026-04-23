@@ -76,6 +76,8 @@ python -m paper_analyzer.services.local_runner
 python -m paper_analyzer.services.worker
 ```
 
+默认会自动拉起最多 3 个并发 worker；调试时可用 `--workers 1`。
+
 - Webhook 模式：
 
 ```bash
@@ -83,6 +85,8 @@ RUN_MODE=webhook
 uvicorn paper_analyzer.main:app --host 0.0.0.0 --port 8000
 python -m paper_analyzer.services.worker
 ```
+
+默认会自动拉起最多 3 个并发 worker；调试时可用 `--workers 1`。
 
 - 双模式：
 
@@ -92,6 +96,8 @@ uvicorn paper_analyzer.main:app --host 0.0.0.0 --port 8000
 python -m paper_analyzer.services.local_runner
 python -m paper_analyzer.services.worker
 ```
+
+默认会自动拉起最多 3 个并发 worker；调试时可用 `--workers 1`。
 
 启动 API：
 

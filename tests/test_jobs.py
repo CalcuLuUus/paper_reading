@@ -253,3 +253,39 @@ def test_local_polling_skips_when_same_source_is_already_pending(test_env):
     assert results[0].status == "duplicate"
     assert session.query(AnalysisJob).count() == 1
     session.close()
+
+
+def test_claim_next_job_is_atomic_and_marks_running(test_env):
+    settings = get_settings()
+    init_database()
+    session = get_session_factory()()
+    feishu = FakeFeishuClient(settings)
+    session.add(
+        AnalysisJob(
+            base_token=settings.feishu_base_token,
+            table_id=settings.feishu_table_id,
+            record_id="rec1",
+            source_hash="arxiv:2401.01234",
+            status="queued",
+            attempts=0,
+            error=None,
+            source_type="arxiv",
+            trigger_mode=TRIGGER_MODE_LOCAL_POLLING,
+            force_rerun=True,
+            source_meta_json='{"source_type":"arxiv","source_hash":"arxiv:2401.01234","paper_id":"2401.01234","arxiv_id":"2401.01234"}',
+            result_json=None,
+            requested_at=utcnow(),
+            started_at=None,
+            finished_at=None,
+        )
+    )
+    session.commit()
+
+    service = JobService(session, settings, feishu)
+    claimed = service.claim_next_job()
+
+    assert claimed is not None
+    assert claimed.status == "running"
+    assert claimed.attempts == 1
+    assert claimed.started_at is not None
+    session.close()
