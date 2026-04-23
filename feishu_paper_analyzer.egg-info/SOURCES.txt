@@ -25,6 +25,7 @@ paper_analyzer/services/__init__.py
 paper_analyzer/services/analysis.py
 paper_analyzer/services/chunking.py
 paper_analyzer/services/jobs.py
+paper_analyzer/services/local_runner.py
 paper_analyzer/services/prompts.py
 paper_analyzer/services/source_loader.py
 paper_analyzer/services/worker.py

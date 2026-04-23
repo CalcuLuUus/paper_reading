@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 
 from paper_analyzer.clients.llm import OpenAICompatibleClient
 from paper_analyzer.config import Settings
@@ -29,11 +30,17 @@ class PaperAnalyzer:
             raise ValueError("论文正文为空，无法分析")
 
         chunks = chunk_document(document, self.settings.llm_max_chunk_chars)
+        self._log(
+            f"[{_timestamp()}] analyzer: start "
+            f"title={document.title or '未提供'} source_type={document.source_type} "
+            f"content_chars={len(document.content)} chunks={len(chunks)}"
+        )
         evidence_chunks = [
             self._extract_chunk_evidence(document, chunk, index + 1, len(chunks))
             for index, chunk in enumerate(chunks)
         ]
         merged_evidence = self._merge_evidence(evidence_chunks)
+        self._log(f"[{_timestamp()}] analyzer: evidence merged, starting final synthesis")
         return self._finalize(document, merged_evidence)
 
     def _extract_chunk_evidence(
@@ -44,10 +51,15 @@ class PaperAnalyzer:
         total: int,
     ) -> ChunkEvidence:
         prompt = build_evidence_prompt(document, chunk, index, total)
+        self._log(
+            f"[{_timestamp()}] analyzer: evidence chunk {index}/{total} "
+            f"chunk_chars={len(chunk)}"
+        )
         result = self.llm_client.complete_json(
             schema=ChunkEvidence,
             system_prompt=EVIDENCE_SYSTEM_PROMPT,
             user_prompt=prompt,
+            request_name=f"evidence_chunk_{index}_of_{total}",
             temperature=0.1,
             max_tokens=2000,
             json_retries=1,
@@ -77,10 +89,15 @@ class PaperAnalyzer:
             evidence = ChunkEvidence.model_validate(compact_evidence)
 
         prompt = build_final_prompt(document, evidence)
+        self._log(
+            f"[{_timestamp()}] analyzer: final synthesis "
+            f"evidence_chars={len(prompt)}"
+        )
         result = self.llm_client.complete_json(
             schema=PaperAnalysisOutput,
             system_prompt=FINAL_SYSTEM_PROMPT,
             user_prompt=prompt,
+            request_name="final_synthesis",
             temperature=0.2,
             max_tokens=4000,
             json_retries=1,
@@ -88,3 +105,10 @@ class PaperAnalyzer:
         )
         return PaperAnalysisOutput.model_validate(result.model_dump())
 
+    def _log(self, message: str) -> None:
+        if self.settings.llm_debug_enabled:
+            print(message, flush=True)
+
+
+def _timestamp() -> str:
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")

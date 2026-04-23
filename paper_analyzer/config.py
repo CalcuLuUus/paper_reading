@@ -37,11 +37,14 @@ class Settings(BaseSettings):
     job_timeout_sec: int = 900
     max_pdf_mb: int = 30
     worker_poll_interval_sec: float = 2.0
-    local_poll_interval_sec: float = 30.0
+    local_poll_interval_sec: float = 10.0
     llm_request_timeout_sec: int = 120
     llm_max_chunk_chars: int = 12000
     llm_max_evidence_chars: int = 30000
     pdf_text_threshold: int = 1200
+    llm_debug_enabled: bool = True
+    llm_log_full_prompts: bool = True
+    llm_log_preview_chars: int = 800
 
     @property
     def webhook_enabled(self) -> bool:

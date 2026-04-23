@@ -18,18 +18,39 @@ Requires-Dist: pytest-mock>=3.14.0; extra == "dev"
 
 # 飞书多维表格论文分析器 v1
 
-这是一个面向飞书多维表格的单租户论文分析服务：
+这是一个给飞书多维表格用的论文自动分析服务。
 
-- 飞书多维表格负责触发和展示。
-- `FastAPI` 服务负责接收 webhook、入队任务。
-- 独立 worker 负责抓取 arXiv/PDF、调用 OpenAI 兼容模型、回写 8 列分析结果。
+你在表里上传 PDF 或粘贴 arXiv 链接后，系统会自动：
 
-## 功能范围
+1. 触发 webhook
+2. 解析论文内容
+3. 调用 OpenAI 兼容模型
+4. 把 8 个中文分析模块回填到多维表格
+
+现在支持两种运行方式：
+
+- `Webhook 模式`：飞书自动化直接调用你的 HTTP 服务，适合云端部署或本地临时穿透。
+- `本地模式`：后端只跑在本机，不需要公网入口；本地扫描器每隔一段时间主动扫表，处理 `分析状态=待分析` 的记录。
+
+## 先看哪里
+
+如果你是第一次接手这个项目，不要先看代码，先看这里：
+
+- 从零部署指南：[QUICKSTART.md](./QUICKSTART.md)
+- 环境变量模板：[.env.example](./.env.example)
+
+## 这个项目适合谁
+
+- 已经在用飞书多维表格做文献管理
+- 想在表格中直接得到论文分析结果
+- 想兼容 OpenAI 官方或其他 OpenAI 兼容模型服务
+
+## 功能概览
 
 - 输入支持：
   - `arXiv链接`
   - 文本型 `PDF附件`
-- 输出为 8 列中文 Markdown：
+- 输出字段：
   - `0_摘要翻译`
   - `1_方法动机`
   - `2_方法设计`
@@ -38,7 +59,7 @@ Requires-Dist: pytest-mock>=3.14.0; extra == "dev"
   - `5_学习与应用`
   - `6_总结`
   - `7_关键词领域`
-- 系统列：
+- 系统字段：
   - `分析状态`
   - `错误信息`
   - `来源类型`
@@ -46,89 +67,80 @@ Requires-Dist: pytest-mock>=3.14.0; extra == "dev"
   - `论文ID`
   - `最后分析时间`
 
-v1 不支持 OCR，不抓 DOI/出版社网页，只覆盖 arXiv 和可提取文本的 PDF。
+## 技术结构
 
-## 安装
+```text
+Feishu Bitable -> Automation Webhook -> FastAPI -> SQLite Queue -> Worker -> LLM -> Bitable Writeback
+```
+
+## 本地开发
+
+安装：
 
 ```bash
-python -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
 cp .env.example .env
 ```
 
-## 启动
+常见运行模式：
 
-API：
+- 本地模式：
+
+```bash
+RUN_MODE=local_polling
+python -m paper_analyzer.services.local_runner
+python -m paper_analyzer.services.worker
+```
+
+- Webhook 模式：
+
+```bash
+RUN_MODE=webhook
+uvicorn paper_analyzer.main:app --host 0.0.0.0 --port 8000
+python -m paper_analyzer.services.worker
+```
+
+- 双模式：
+
+```bash
+RUN_MODE=hybrid
+uvicorn paper_analyzer.main:app --host 0.0.0.0 --port 8000
+python -m paper_analyzer.services.local_runner
+python -m paper_analyzer.services.worker
+```
+
+启动 API：
 
 ```bash
 uvicorn paper_analyzer.main:app --host 0.0.0.0 --port 8000
 ```
 
-Worker：
+启动 Worker：
 
 ```bash
 python -m paper_analyzer.services.worker
 ```
 
-## 飞书表结构
+健康检查：
 
-建议字段如下：
-
-- 主字段：`论文标题/备注`
-- 输入：`PDF附件`、`arXiv链接`
-- 输出：`0_摘要翻译` 到 `7_关键词领域`
-- 系统：`分析状态`、`错误信息`、`来源类型`、`来源哈希`、`论文ID`、`最后分析时间`
-
-## 飞书自动化配置
-
-在多维表格里配置一条自动化：
-
-1. 触发条件：记录新增或修改。
-2. 限定监控字段：`PDF附件`、`arXiv链接`。
-3. 动作：发送 HTTP 请求到：
-
-```text
-POST https://your-domain/webhooks/feishu/bitable-record
+```bash
+curl http://127.0.0.1:8000/healthz
 ```
-
-请求体示例：
-
-```json
-{
-  "base_token": "bascnxxx",
-  "table_id": "tblxxx",
-  "record_id": "{{record_id}}",
-  "changed_fields": ["arXiv链接"],
-  "secret": "change-me"
-}
-```
-
-如果你希望让 `changed_fields` 更精确，可以在自动化里针对不同字段配置不同请求体；如果做不到，也可以直接传固定值，服务端仍会以记录当前内容重新判定来源。
-
-## 运行方式
-
-- `POST /webhooks/feishu/bitable-record`
-  - 校验 `secret`
-  - 拉取记录
-  - 解析来源
-  - 入队并把 `分析状态` 更新为 `排队中`
-- worker
-  - 轮询 `analysis_jobs`
-  - 将记录标记为 `分析中`
-  - 优先抓取 arXiv HTML，失败后退回 arXiv PDF，再退回附件 PDF
-  - 调用 OpenAI 兼容 `chat/completions`
-  - 成功后一次性写回 8 列和系统列
 
 ## 测试
 
+这个环境下 `pytest` 的默认 capture 插件会触发段错误，所以请这样跑：
+
 ```bash
-pytest
+python3 -m pytest -p no:capture
 ```
 
-## 说明
+## 限制
 
-- OpenAI 兼容层只依赖 `base_url + api_key + model`。
-- Feishu SDK 没有被强绑定，当前实现直接走 HTTP API。
-- 默认数据库是 SQLite，适合单实例部署。
-
+- v1 不支持 OCR
+- 不抓 DOI/出版社网页
+- 只覆盖 arXiv 和可提取文本的 PDF
+- 默认数据库是 SQLite，适合单实例部署
+- 本地模式依赖轮询，不是实时事件推送
